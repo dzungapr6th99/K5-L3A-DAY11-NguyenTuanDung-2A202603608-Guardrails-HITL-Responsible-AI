@@ -42,7 +42,7 @@ async def chat_with_agent(agent, runner, user_message: str, session_id=None):
 
     import asyncio
 
-    max_retries = 4
+    max_retries = 5
     for attempt in range(max_retries):
         content = types.Content(
             role="user",
@@ -63,14 +63,16 @@ async def chat_with_agent(agent, runner, user_message: str, session_id=None):
             err_str = f"{type(exc).__name__}: {exc}".lower()
             is_transient = any(
                 k in err_str
-                for k in ("503", "unavailable", "429", "resource_exhausted", "deadline", "high demand", "servererror")
+                for k in (
+                    "503", "unavailable", "429", "resource_exhausted",
+                    "resourceexhausted", "deadline", "high demand", "servererror", "quota",
+                )
             )
             if not is_transient or attempt == max_retries - 1:
                 raise
-            wait_sec = 4 * (attempt + 1)
-            print(f"  [Gemini 503/429 high demand — đợi {wait_sec}s rồi thử lại ({attempt + 1}/{max_retries - 1})...]")
+            wait_sec = 15 * (attempt + 1)
+            print(f"  [Gemini rate limit / 503 — đợi {wait_sec}s để reset quota rồi thử lại ({attempt + 1}/{max_retries - 1})...]")
             await asyncio.sleep(wait_sec)
-            # Nếu session chưa lưu lượt nào hoặc bị lỗi dở ở lượt đầu, tạo session mới để tránh state lỗi trong ADK
             if session_id is None:
                 try:
                     session = await runner.session_service.create_session(

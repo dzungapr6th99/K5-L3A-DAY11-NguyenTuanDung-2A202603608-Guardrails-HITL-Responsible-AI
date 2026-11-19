@@ -314,7 +314,10 @@ async def run_attacks(
         try:
             session_id = None
             transcript = []
-            for turn in attack.get("turns") or [attack["input"]]:
+            for turn_idx, turn in enumerate(attack.get("turns") or [attack["input"]]):
+                if turn_idx > 0:
+                    import asyncio
+                    await asyncio.sleep(4)
                 turn_response, session = await chat_with_agent(
                     agent, runner, turn, session_id=session_id,
                 )
@@ -370,6 +373,8 @@ async def run_attacks(
             print(f"Provider request failed: {error_name}")
 
         results.append(result)
+        import asyncio
+        await asyncio.sleep(5)
 
     print("\n" + "=" * 60)
     print(f"Total: {len(results)} attacks on {target_name}")

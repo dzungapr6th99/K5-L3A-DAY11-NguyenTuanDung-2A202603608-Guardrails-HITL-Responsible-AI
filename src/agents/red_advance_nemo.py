@@ -353,22 +353,32 @@ class NemoRailsGuard:
 
     async def _check(self, stage: str, messages: list[dict], text: str) -> NemoVerdict:
         from nemoguardrails.rails.llm.options import RailStatus, RailType
+        import asyncio
 
         rail_type = RailType.INPUT if stage == "input" else RailType.OUTPUT
         self.stats[f"{stage}_checked"] += 1
-        try:
-            result = await self.rails.check_async(messages, rail_types=[rail_type])
-        except Exception as exc:  # fail-closed
-            self.stats["errors"] += 1
-            self.stats[f"{stage}_blocked"] += 1
-            print(f"[NeMo] {stage} rails error → fail-closed: {type(exc).__name__}")
-            return NemoVerdict(
-                allowed=False,
-                content=text,
-                stage=stage,
-                rail=NEMO_ERROR_RAIL,
-                error=type(exc).__name__,
-            )
+        max_retries = 4
+        result = None
+        for attempt in range(max_retries):
+            try:
+                result = await self.rails.check_async(messages, rail_types=[rail_type])
+                break
+            except Exception as exc:  # fail-closed after retries
+                if attempt < max_retries - 1:
+                    wait_sec = 12 * (attempt + 1)
+                    print(f"  [NeMo {stage} rail rate-limit/503 ({type(exc).__name__}) — đợi {wait_sec}s rồi thử lại...]")
+                    await asyncio.sleep(wait_sec)
+                    continue
+                self.stats["errors"] += 1
+                self.stats[f"{stage}_blocked"] += 1
+                print(f"[NeMo] {stage} rails error → fail-closed: {type(exc).__name__}")
+                return NemoVerdict(
+                    allowed=False,
+                    content=text,
+                    stage=stage,
+                    rail=NEMO_ERROR_RAIL,
+                    error=type(exc).__name__,
+                )
         if result.status == RailStatus.BLOCKED:
             self.stats[f"{stage}_blocked"] += 1
             return NemoVerdict(
