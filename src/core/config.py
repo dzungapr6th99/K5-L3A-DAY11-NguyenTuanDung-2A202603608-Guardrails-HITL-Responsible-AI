@@ -33,6 +33,8 @@ except ImportError:
 PROVIDER_OPENAI = "openai"
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_OLLAMA = "ollama"
+DEFAULT_OLLAMA_MODEL = "lfm3:1.7b"
 
 # --- Blue Team (LOCKED) ---
 BLUE_PROVIDER = PROVIDER_OPENROUTER
@@ -100,11 +102,33 @@ except FileNotFoundError:
 # ---------------------------------------------------------------------------
 
 def get_blue_provider() -> str:
-    return BLUE_PROVIDER
+    raw = os.environ.get("BLUE_TEAM_PROVIDER", BLUE_PROVIDER).strip().lower()
+    if raw not in {PROVIDER_OPENROUTER, PROVIDER_OLLAMA}:
+        raise ValueError("BLUE_TEAM_PROVIDER must be openrouter or ollama")
+    return raw
+
+
+def get_ollama_model() -> str:
+    return os.environ.get("LAB_OLLAMA_MODEL", "").strip() or DEFAULT_OLLAMA_MODEL
+
+
+def ollama_client_kwargs() -> dict:
+    base = (os.environ.get("OLLAMA_BASE_URL", "").strip()
+            or "http://192.168.1.246:11434/v1").rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
+    return {
+        "api_key": os.environ.get("OLLAMA_API_KEY", "").strip() or "ollama",
+        "base_url": base,
+        "timeout": float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "180")),
+        "max_retries": 0,
+    }
 
 
 def get_blue_model() -> str:
-    # Hard-locked; env cannot override for the graded Blue Team path.
+    if get_blue_provider() == PROVIDER_OLLAMA:
+        return get_ollama_model()
+    # Graded OpenRouter path keeps the required model.
     return BLUE_MODEL
 
 
@@ -113,7 +137,9 @@ def get_openrouter_api_key() -> str:
 
 
 def blue_client_kwargs() -> dict:
-    """OpenAI SDK kwargs pointing at OpenRouter (Blue Team only)."""
+    """OpenAI-compatible SDK settings for the selected Blue provider."""
+    if get_blue_provider() == PROVIDER_OLLAMA:
+        return ollama_client_kwargs()
     return {
         "api_key": get_openrouter_api_key() or None,
         "base_url": (
@@ -139,11 +165,15 @@ def get_red_provider() -> str:
     ).strip().lower()
     if raw in {"gemini", "google", "adk"}:
         return PROVIDER_GEMINI
-    return PROVIDER_OPENAI
+    if raw in {PROVIDER_OPENAI, PROVIDER_OLLAMA}:
+        return raw
+    raise ValueError("RED_TEAM_PROVIDER must be openai, gemini or ollama")
 
 
 def get_red_model() -> str:
     """Model Red Team từ .env (cùng cho default + advance)."""
+    if get_red_provider() == PROVIDER_OLLAMA:
+        return os.environ.get("OLLAMA_RED_MODEL", "").strip() or get_ollama_model()
     if get_red_provider() == PROVIDER_GEMINI:
         return (
             os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
@@ -170,6 +200,8 @@ def get_openai_api_key() -> str:
 
 
 def red_openai_client_kwargs() -> dict:
+    if get_red_provider() == PROVIDER_OLLAMA:
+        return ollama_client_kwargs()
     return {"api_key": get_openai_api_key() or None}
 
 
@@ -180,7 +212,7 @@ def red_provider_label(tier: str = "advance") -> str:
 
 
 def red_uses_openai_sdk() -> bool:
-    return get_red_provider() == PROVIDER_OPENAI
+    return get_red_provider() in {PROVIDER_OPENAI, PROVIDER_OLLAMA}
 
 
 def red_uses_gemini() -> bool:
@@ -234,24 +266,34 @@ def is_harder_model() -> bool:
     return any(x in m for x in ("gpt-5.6", "pro", "gemini-3.8", "gemini-3.7"))
 
 
-def setup_api_key():
-    """Ensure keys for Blue (OpenRouter) + Red / Red Advance (OpenAI or Gemini)."""
-    if not get_openrouter_api_key():
-        os.environ["OPENROUTER_API_KEY"] = input(
+def setup_api_key(*, blue: bool = True, red_team: bool = True):
+    """Request only the keys needed for the selected checkpoints."""
+    from getpass import getpass
+
+    if blue and get_blue_provider() == PROVIDER_OPENROUTER and not get_openrouter_api_key():
+        os.environ["OPENROUTER_API_KEY"] = getpass(
             "Enter OpenRouter API Key (Blue): "
         ).strip()
-    print(f"Blue  — {blue_provider_label()}  [LOCKED]")
+    if blue:
+        print(f"Blue  — {blue_provider_label()}")
+    if blue and get_blue_provider() == PROVIDER_OLLAMA:
+        print("LOCAL practice mode: submission requires the providers in README.md.")
+
+    if not red_team:
+        return
 
     red = get_red_provider()
     model = get_red_model()
-    if red == PROVIDER_GEMINI:
+    if red == PROVIDER_OLLAMA:
+        print(f"Red / Red Advance  — ollama:{model}")
+    elif red == PROVIDER_GEMINI:
         if not os.environ.get("GOOGLE_API_KEY", "").strip():
-            os.environ["GOOGLE_API_KEY"] = input("Enter Google API Key (Red): ").strip()
+            os.environ["GOOGLE_API_KEY"] = getpass("Enter Google API Key (Red): ").strip()
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
         print(f"Red / Red Advance  — gemini:{model}")
     else:
         if not get_openai_api_key():
-            os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key (Red): ").strip()
+            os.environ["OPENAI_API_KEY"] = getpass("Enter OpenAI API Key (Red): ").strip()
         print(f"Red / Red Advance  — openai:{model}")
 
     print(

@@ -97,7 +97,7 @@ def create_red_agent_default():
 
 
 def create_blue_agent(plugins: list):
-    """Blue — ALWAYS OpenRouter liquid/lfm-3-1.7b:free + student plugins."""
+    """Blue with student plugins and the provider selected in local config."""
     from core.openai_runtime import create_blue_pair
 
     agent, runner = create_blue_pair(

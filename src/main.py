@@ -110,6 +110,12 @@ async def part4_attacks():
         guards_results=guards_results,
         ai_attacks=None,
     )
+    errors = [r for r in unsafe_results + guards_results if r.get("error") or r.get("layer") == "nemo_error"]
+    if errors:
+        raise RuntimeError(
+            f"{len(errors)} attacks encountered provider/NeMo errors. "
+            "Diagnostics were saved; fix the API configuration before treating this as a completed run."
+        )
 
     red_leaks = sum(1 for r in unsafe_results if r.get("leaked"))
     bonus_leaks = sum(1 for r in guards_results if r.get("leaked"))
@@ -134,10 +140,10 @@ async def part4_attacks():
 
 
 async def main(parts=None):
-    setup_api_key()
-
     if parts is None:
         parts = [2, 3, 4]  # Core: CP2 → CP3 → CP4
+    # CP2 is deterministic and does not need a key; CP3 only needs Blue.
+    setup_api_key(blue=3 in parts, red_team=4 in parts)
 
     for part in parts:
         if part == 2:

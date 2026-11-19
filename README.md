@@ -1,5 +1,11 @@
 # Day 11 — Controlled Agent Security (2026)
 
+**Cấu hình bài làm hiện tại:** Blue dùng `lfm3:1.7b` qua Ollama trên Jetson;
+Red/Red Advance dùng Gemini với key tự nhập trong `.env` hoặc terminal.
+Các TODO bắt buộc CP2–CP4 đã được implement, chưa chạy lab/test sau thay đổi.
+Xem [SETUP-OLLAMA.md](SETUP-OLLAMA.md) để biết cách chạy và phạm vi implementation.
+Các yêu cầu gốc của ban tổ chức được giữ ở phần dưới.
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).

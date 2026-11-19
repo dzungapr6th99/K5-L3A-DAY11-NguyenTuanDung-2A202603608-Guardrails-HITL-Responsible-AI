@@ -37,6 +37,8 @@ from agents.security_boundary import contains_secret, normalize_for_security
 from core.config import (
     DEMO_SECRETS,
     PROVIDER_GEMINI,
+    PROVIDER_OLLAMA,
+    ollama_client_kwargs,
     get_red_model,
     get_red_provider,
 )
@@ -229,6 +231,14 @@ def require_nemo():
 
 
 def _model_entry(provider: str, model: str) -> dict:
+    if provider == PROVIDER_OLLAMA:
+        kwargs = ollama_client_kwargs()
+        return {
+            "type": "main",
+            "engine": "openai",
+            "model": model,
+            "parameters": {**kwargs, "reasoning_effort": "none"},
+        }
     if provider == PROVIDER_GEMINI:
         return {
             "type": "main",

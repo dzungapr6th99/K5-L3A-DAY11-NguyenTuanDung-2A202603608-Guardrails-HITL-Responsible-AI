@@ -11,6 +11,7 @@ Status convention (không dùng True/False mơ hồ):
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Literal
 
 from google.genai import types
@@ -18,9 +19,17 @@ from google.adk.plugins import base_plugin
 from google.adk.agents.invocation_context import InvocationContext
 
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
+from agents.security_boundary import normalize_for_security
 
 # Quyết định rõ ràng — tránh đảo nghĩa True/False
 InputStatus = Literal["ALLOW", "BLOCK"]
+
+
+def canonical_text(text: str) -> str:
+    """Fold case/diacritics and strip invisible format controls for matching."""
+    text = unicodedata.normalize("NFKD", normalize_for_security(text)).casefold()
+    text = "".join(c for c in text if unicodedata.category(c) not in {"Mn", "Cf"})
+    return re.sub(r"\s+", " ", text.replace("đ", "d")).strip()
 
 
 # ============================================================
@@ -52,13 +61,20 @@ def detect_injection(user_input: str) -> InputStatus:
         ``"BLOCK"`` if injection detected (chặn), ``"ALLOW"`` otherwise (cho qua).
     """
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\b(?:ignore|disregard|forget|override)\b.{0,60}\b(?:instructions?|rules?|directives?)\b",
+        r"\byou are now\b",
+        r"\b(?:system|developer)\s+(?:prompt|instructions?|override)\b",
+        r"\breveal\s+(?:your\s+)?(?:instructions?|prompt)\b",
+        r"\bpretend\s+(?:that\s+)?you are\b",
+        r"\bact as\s+(?:(?:a|an)\s+)?unrestricted\b",
+        r"\b(?:reveal|show|print|repeat|disclose|translate|encode|complete|confirm)\b.{0,100}\b(?:password|credentials?|secrets?|api\s*key|internal\s+notes?)\b",
+        r"\b(?:base64|rot13|hex)\b.{0,80}\b(?:internal|secret|password|instructions?)\b",
+        r"\bbo qua\b.{0,50}\b(?:huong dan|quy tac|chi dan)\b",
+        r"\b(?:tiet lo|hien thi|cho (?:toi )?xem|in ra)\b.{0,60}\b(?:mat khau|khoa api|noi bo|chi dan)\b",
     ]
-
+    normalized = canonical_text(user_input)
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, normalized):
             return "BLOCK"
     return "ALLOW"
 
@@ -84,14 +100,14 @@ def topic_filter(user_input: str) -> InputStatus:
         ``"BLOCK"`` = chặn (off-topic hoặc topic cấm).
         ``"ALLOW"`` = cho qua (câu banking hợp lệ).
     """
-    input_lower = user_input.lower()
+    text = canonical_text(user_input)
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
+    def matches(topic: str) -> bool:
+        return bool(re.search(r"(?<!\w)" + re.escape(canonical_text(topic)) + r"(?!\w)", text))
 
-    pass  # Replace with your implementation
+    if any(matches(topic) for topic in BLOCKED_TOPICS):
+        return "BLOCK"
+    return "ALLOW" if any(matches(topic) for topic in ALLOWED_TOPICS) else "BLOCK"
 
 
 # ============================================================
@@ -144,14 +160,13 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 3. If both return "ALLOW": return None (let message through)
-
-        pass  # Replace with your implementation
+        if detect_injection(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("Request blocked: instruction override or secret extraction detected.")
+        if topic_filter(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response("I can only help with banking-related questions.")
+        return None
 
 
 # ============================================================

@@ -1,5 +1,5 @@
 """
-Assignment 11 — Monitoring & Alerts starter (TODO).
+Assignment 11 — Monitoring counters and threshold alerts.
 
 Tracks block rate, rate-limit hits, judge fail rate.
 Fires alerts when thresholds are exceeded.
@@ -42,16 +42,27 @@ class MonitoringAlert:
     judge_fails: int = 0
 
     def check_metrics(self) -> list[Alert]:
-        """TODO: compute rates, append Alert objects when thresholds exceeded."""
-        raise NotImplementedError("Implement MonitoringAlert.check_metrics")
+        """Report current threshold breaches, without duplicating old alerts."""
+        metrics = self.snapshot()
+        checks = (
+            ("block_rate", self.block_rate_threshold, "High proportion of requests blocked"),
+            ("rate_limit_hits", self.rate_limit_hit_threshold, "Repeated rate-limit hits"),
+            ("judge_fail_rate", self.judge_fail_rate_threshold, "High judge rejection rate"),
+        )
+        self.alerts = [
+            Alert(metric, metrics[metric], threshold, message)
+            for metric, threshold, message in checks
+            if metrics[metric] > threshold
+        ]
+        return list(self.alerts)
 
     def export_json(self, filepath: str | None = None):
-        """TODO: write metrics + alerts to JSON under repo-root ``outputs/`` by default.
-        Use ``filepath or default_metrics_path()`` so running from ``src/`` does not
-        create ``src/outputs/``.
-        """
-        _ = filepath or default_metrics_path()
-        raise NotImplementedError("Implement MonitoringAlert.export_json")
+        """Write the latest counters and alerts to repo-root outputs by default."""
+        self.check_metrics()
+        path = Path(filepath or default_metrics_path())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.snapshot(), ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
 
     def snapshot(self) -> dict:
         block_rate = (
