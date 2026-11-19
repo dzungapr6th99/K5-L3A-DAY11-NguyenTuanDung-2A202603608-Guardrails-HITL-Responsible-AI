@@ -40,18 +40,43 @@ async def chat_with_agent(agent, runner, user_message: str, session_id=None):
                 app_name=app_name, user_id=user_id
             )
 
-    content = types.Content(
-        role="user",
-        parts=[types.Part.from_text(text=user_message)],
-    )
+    import asyncio
 
-    final_response = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=session.id, new_message=content
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            for part in event.content.parts:
-                if getattr(part, "text", None) and not getattr(part, "thought", False):
-                    final_response += part.text
+    max_retries = 4
+    for attempt in range(max_retries):
+        content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=user_message)],
+        )
+
+        final_response = ""
+        try:
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session.id, new_message=content
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if getattr(part, "text", None) and not getattr(part, "thought", False):
+                            final_response += part.text
+            return final_response, session
+        except Exception as exc:
+            err_str = f"{type(exc).__name__}: {exc}".lower()
+            is_transient = any(
+                k in err_str
+                for k in ("503", "unavailable", "429", "resource_exhausted", "deadline", "high demand", "servererror")
+            )
+            if not is_transient or attempt == max_retries - 1:
+                raise
+            wait_sec = 4 * (attempt + 1)
+            print(f"  [Gemini 503/429 high demand — đợi {wait_sec}s rồi thử lại ({attempt + 1}/{max_retries - 1})...]")
+            await asyncio.sleep(wait_sec)
+            # Nếu session chưa lưu lượt nào hoặc bị lỗi dở ở lượt đầu, tạo session mới để tránh state lỗi trong ADK
+            if session_id is None:
+                try:
+                    session = await runner.session_service.create_session(
+                        app_name=app_name, user_id=user_id
+                    )
+                except Exception:
+                    pass
 
     return final_response, session
